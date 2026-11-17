@@ -27,6 +27,9 @@ href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Man
                 <a href="#/my">Мои прохождения</a>
                 <a href="#/author">Кабинет автора</a>
             </nav>
+            <button id="eye" class="btn light" onclick="a11yPanel()" aria-label="Версия для слабовидящих" title="Версия для слабовидящих">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
             <a id="me" class="btn light" href="#/login">Войти</a>
         <a class="btn" href="#/new">+ Создать</a>
         </div>
@@ -37,6 +40,7 @@ href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Man
     <div id="toast" class="toast"></div>
     <div id="modal" class="modal" onclick="if (event.target == this) closeModal()"></div>
 
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
     <script src="data.js"></script>
     <script src="app.js"></script>
 </body>

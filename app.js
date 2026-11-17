@@ -64,6 +64,8 @@ const votesOf = id => {
   votes.filter(v => logged() && v.name == user().name).forEach(v => mine[v.step] = v.value);
   return mine;
 };
+const a11y = () => ({ on: false, size: 2, scheme: 'base', images: true, spacing: false, ...load('a11y', {}) });
+const calm = () => matchMedia('(prefers-reduced-motion: reduce)').matches || a11y().on;
 
 const person = (name, expert) => `
   <span class="who"><span class="ava">${initials(name)}</span>${esc(name)}${expert ? ' <span class="badge">эксперт</span>' : ''}</span>`;
@@ -75,8 +77,8 @@ function toast(text) {
   toast.timer = setTimeout(() => $('toast').classList.remove('show'), 2200);
 }
 
-function openModal(html) {
-  $('modal').innerHTML = `<div class="box">${html}</div>`;
+function openModal(html, wide) {
+  $('modal').innerHTML = `<div class="box ${wide ? 'wide' : ''}" role="dialog" aria-modal="true">${html}</div>`;
   $('modal').classList.add('show');
 }
 
@@ -84,10 +86,25 @@ function closeModal() {
   $('modal').classList.remove('show');
 }
 
-function copy(text) {
+function copy(text, button) {
   navigator.clipboard.writeText(text)
-    .then(() => toast('Скопировано'))
+    .then(() => {
+      toast('Скопировано');
+      if (button) copied(button);
+    })
     .catch(() => toast('Не получилось скопировать'));
+}
+
+function copied(button) {
+  if (button.dataset.html) return;
+  button.dataset.html = button.innerHTML;
+  button.classList.add('copied');
+  button.innerHTML = `${ic('check')} Скопировано`;
+  setTimeout(() => {
+    button.innerHTML = button.dataset.html;
+    delete button.dataset.html;
+    button.classList.remove('copied');
+  }, 1600);
 }
 
 function needLogin() {
@@ -130,6 +147,7 @@ function hints(g) {
     if (!s[2].length) out.push(`${n}: нет чек-листа — читателю нечего отмечать.`);
     if (st.lost(i) > 10) out.push(`${n}: после него бросают ${st.lost(i)}% читателей — добавьте фото или предупреждение.`);
     if (disliked(i)) out.push(`${n} отметили как «не полезно».`);
+    if (s[5] && !s[5].alt) out.push(`${n}: у картинки нет описания — его читает экранный диктор.`);
     if (c >= 2) out.push(`${n}: ${plural(c, 'комментарий', 'комментария', 'комментариев')} — проверьте, что непонятно.`);
   });
   return out;
@@ -145,8 +163,8 @@ function catalogPage() {
   return `
     <section class="hero">
       <div>
-        <p class="eyebrow">Сделано людьми, которые уже прошли этот путь</p>
-        <h1>Делайте впервые — как будто уже делали</h1>
+        <p class="eyebrow">Для людей.</p>
+        <h1>Делайте впервые - как будто уже делали</h1>
         <p class="lead muted">Пошаговые инструкции с чек-листами: от сборки ПК до справки в деканате. Отмечайте шаги, не теряйте порядок и подсказывайте автору, где было непонятно.</p>
         <div class="search">
           <input id="q" value="${esc(filter.q)}" placeholder="Что нужно сделать? Например: справка" oninput="filter.q = this.value; showList()" aria-label="Поиск">
@@ -159,7 +177,7 @@ function catalogPage() {
     <div class="cats">
       ${CATS.map((c, i) => `
         <button class="cat ${filter.cat == i ? 'on' : ''}" onclick="setFilter('cat', ${filter.cat == i ? -1 : i})">
-          <span class="spot c${i}">${ic('cat' + i)}</span>
+          <span class="spot c${i}"><img src="${emoji(i)}" alt="" width="30" height="30"></span>
           <b>${c}</b>
           <span class="muted small">${plural(allGuides().filter(g => g.cat == i).length, 'инструкция', 'инструкции', 'инструкций')}</span>
         </button>`).join('')}
@@ -167,8 +185,8 @@ function catalogPage() {
 
     <div class="row" style="margin-bottom: 16px">
       <h2 class="grow" style="margin: 0">${filter.cat < 0 ? 'Все инструкции' : CATS[filter.cat]}</h2>
-      ${[['useful', 'Полезные'], ['new', 'Новые'], ['short', 'Короткие']].map(([key, text]) => `
-        <button class="chip ${filter.sort == key ? 'on' : ''}" onclick="setFilter('sort', '${key}')">${text}</button>`).join('')}
+      <div class="seg" id="sortSeg"><span class="pill"></span>${[['useful', 'Полезные'], ['new', 'Новые'], ['short', 'Короткие']].map(([key, text]) => `
+        <button class="chip ${filter.sort == key ? 'on' : ''}" onclick="setFilter('sort', '${key}')">${text}</button>`).join('')}</div>
       <button class="chip ${filter.expert ? 'on' : ''}" onclick="setFilter('expert', ${!filter.expert})">Проверено экспертом</button>
     </div>
     <div class="grid" id="list">${cards()}</div>`;
@@ -196,6 +214,10 @@ function howItWorks() {
     </div>`;
 }
 
+function emoji(i) {
+  return `https://fonts.gstatic.com/s/e/notoemoji/latest/${CAT_EMOJI[i]}/${calm() ? 'emoji.svg' : '512.webp'}`;
+}
+
 function setFilter(key, value) {
   filter[key] = value;
   render();
@@ -217,7 +239,7 @@ function cards() {
     .filter(g => filter.cat < 0 || g.cat == filter.cat)
     .filter(g => !filter.expert || g.expert)
     .filter(g => {
-      const text = [g.title, CATS[g.cat], ...g.steps.map(s => [s[0], s[1], ...s[2], s[3]].join(' '))].join(' ').toLowerCase();
+      const text = [g.title, CATS[g.cat], ...g.steps.map(s => [s[0], s[1], ...s[2], s[3], s[6] || ''].join(' '))].join(' ').toLowerCase();
       return words.every(w => text.includes(w));
     })
     .sort(sorts[filter.sort]);
@@ -233,7 +255,7 @@ function card(g) {
         <span class="muted grow" style="text-align: right">${g.forkOf ? `форк «${esc(g.forkOf)}»` : `версия ${g.version}`}</span>
       </div>
       <h3>${esc(g.title)}</h3>
-      <div class="muted small">${plural(g.steps.length, 'шаг', 'шага', 'шагов')} · ${esc(g.time)}</div>
+      <div class="muted small">${plural(g.steps.length, 'шаг', 'шага', 'шагов')}, ${esc(g.time)}</div>
       ${s.started
         ? `<div class="row small"><div class="bar grow"><i style="width: ${s.done}%"></i></div><span><b>${s.done}%</b> дошли до конца</span></div>`
         : '<div class="muted small">Новая — ещё никто не прошёл</div>'}
@@ -254,21 +276,21 @@ function guidePage(id) {
 
   const st = stats(g);
   const n = p.step;
-  const [title, text, items, warn] = g.steps[n];
+  const [title, text, items, warn, , image, more] = g.steps[n];
   const votes = votesOf(id);
   const comments = commentsOf(id).filter(c => c.step == n);
   const checked = items.filter((x, j) => p.checks[n + '-' + j]).length;
 
   return `
     <div class="row noprint">
-      <div class="segs grow">${g.steps.map((s, i) => `<i class="${i < n ? 'ok' : i == n ? 'now' : ''}"></i>`).join('')}</div>
-      <b class="small">Шаг ${n + 1} из ${g.steps.length} · ${Math.round(n / g.steps.length * 100)}%</b>
+      <div class="segs grow">${g.steps.map((s, i) => `<i class="${i < n ? 'ok' : i == n ? 'now' : ''}${moved > 0 && i == n - 1 ? ' fill' : ''}"></i>`).join('')}</div>
+      <b class="small">Шаг ${n + 1} из ${g.steps.length}, пройдено ${Math.round(n / g.steps.length * 100)}%</b>
     </div>
 
     <div class="layout">
       <nav class="steps">
         <h3>${esc(g.title)}</h3>
-        <p class="muted small">Версия ${g.version} · ${esc(g.author)}</p>
+        <p class="muted small">Версия ${g.version}, автор ${esc(g.author)}</p>
         ${g.steps.map((s, i) => `
           <button class="${i == n ? 'now' : i < n ? 'ok' : ''}" ${i > Math.max(...p.seen) ? 'disabled' : ''} onclick="go(${id}, ${i})">
             <span class="num">${i < n ? ic('check') : i + 1}</span>
@@ -277,20 +299,26 @@ function guidePage(id) {
       </nav>
 
       <div class="main">
-        <article class="box">
-          <p class="muted small">Шаг ${n + 1}${navigator.onLine ? '' : ' · офлайн, прогресс сохранится'}</p>
+        <article class="box ${moved > 0 ? 'enter-next' : moved < 0 ? 'enter-prev' : ''}">
+          <p class="muted small">Шаг ${n + 1}${navigator.onLine ? '' : ' (офлайн, прогресс сохранится)'}</p>
           <h1>${esc(title)}</h1>
           ${text ? `<p class="lead">${esc(text)}</p>` : ''}
+          ${image ? stepImage(image) : ''}
+          ${more ? `
+            <details class="more">
+              <summary>Подробнее</summary>
+              <p>${esc(more).replace(/\n/g, '<br>')}</p>
+            </details>` : ''}
           ${items.map((item, j) => `
             <label class="check">
               <input type="checkbox" ${p.checks[n + '-' + j] ? 'checked' : ''} onchange="check(${id}, '${n}-${j}')">
-              <span>${esc(item)}</span>
+              <span><span class="txt">${esc(item)}</span></span>
             </label>`).join('')}
           ${warn ? `<div class="warn">${ic('warn')}<div><b>Частая ошибка.</b> ${esc(warn)}</div></div>` : ''}
           <div class="row" style="margin-top: 24px">
             ${n > 0 ? `<button class="btn light" onclick="go(${id}, ${n - 1})">${ic('back')} Назад</button>` : ''}
             <span class="grow"></span>
-            ${items.length ? `<span class="muted small">Отмечено ${checked} из ${items.length}</span>` : ''}
+            ${items.length ? `<span class="muted small" id="checked-count">Отмечено ${checked} из ${items.length}</span>` : ''}
             ${n < g.steps.length - 1
               ? `<button class="btn green" onclick="go(${id}, ${n + 1})">Готово, к шагу ${n + 2} ${ic('next')}</button>`
               : `<button class="btn green" onclick="go(${id}, ${n + 1})">${ic('check')} Завершить</button>`}
@@ -299,12 +327,12 @@ function guidePage(id) {
 
         <section class="box row">
           <b class="grow">Этот шаг был понятен?</b>
-          <button class="btn light ${votes[n] > 0 ? 'on' : ''}" onclick="vote(${id}, ${n}, 1)">${ic('like')} Полезно</button>
+          <button class="btn light ${votes[n] > 0 ? 'on' : ''}" data-vote="1" onclick="vote(${id}, ${n}, 1)">${ic('like')} Полезно</button>
           <button class="btn light ${votes[n] < 0 ? 'on bad' : ''}" onclick="vote(${id}, ${n}, -1)">${ic('dislike')} Не полезно</button>
         </section>
 
         <section class="box">
-          <h2>Комментарии к шагу · ${comments.length}</h2>
+          <h2>Комментарии к шагу (${comments.length})</h2>
           <textarea id="text" rows="3" placeholder="Что было непонятно? Как улучшить шаг?"></textarea>
           <div class="row" style="margin-top: 10px">
             <label class="row small grow"><input type="checkbox" id="idea"> Это предложение улучшения</label>
@@ -326,12 +354,32 @@ function guidePage(id) {
         <a class="btn light" href="#/fork/${id}">${ic('fork')} Сделать форк</a>
         <button class="btn light" onclick="print()">${ic('pdf')} Скачать PDF</button>
         <button class="btn light" onclick="embed(${id})">${ic('code')} Встроить на сайт</button>
-        <button class="btn light" onclick="copy(location.href)">${ic('share')} Поделиться</button>
+        <button class="btn light" onclick="copy(location.href, this)">${ic('share')} Поделиться</button>
         <a class="btn light" href="#/stats/${id}">${ic('chart')} Аналитика</a>
         ${g.forkOf ? `<p class="muted small">Это форк инструкции «${esc(g.forkOf)}»</p>` : ''}
       </aside>
     </div>
     ${printVersion(g)}`;
+}
+
+function stepImage(img) {
+  return `
+    <figure class="step-img">
+      <button class="zoom" onclick="zoomImage(this)" aria-label="Открыть картинку крупно">
+        <img src="${esc(img.src)}" alt="${esc(img.alt)}" loading="lazy" onerror="this.onerror = null; this.src = 'img/placeholder.svg'">
+      </button>
+      ${img.alt ? `<figcaption class="muted small" aria-hidden="true">${esc(img.alt)}</figcaption>` : ''}
+    </figure>`;
+}
+
+function zoomImage(button) {
+  const img = button.querySelector('img');
+  openModal(`
+    <img class="full" src="${esc(img.src)}" alt="${esc(img.alt)}">
+    <div class="row" style="margin-top: 12px">
+      <p class="grow" style="margin: 0">${esc(img.alt)}</p>
+      <button class="btn" onclick="closeModal()">Закрыть</button>
+    </div>`, true);
 }
 
 function commentHtml(c) {
@@ -341,7 +389,7 @@ function commentHtml(c) {
       <div>
         <div class="small">
           <b>${esc(c.name)}</b> ${c.role == 'expert' ? '<span class="badge">эксперт</span>' : ''}
-          <span class="muted">· ${c.date}</span>
+          <span class="muted">${esc(c.date)}</span>
           ${c.idea ? `<span class="tag ${c.accepted ? 'c0' : 'c4'}">${c.accepted ? 'улучшение принято' : 'предложение'}</span>` : ''}
         </div>
         <p>${esc(c.text)}</p>
@@ -370,15 +418,20 @@ function printVersion(g) {
       ${g.steps.map((s, i) => `
         <h3>${i + 1}. ${esc(s[0])}</h3>
         <p>${esc(s[1])}</p>
+        ${s[5] ? `<img src="${esc(s[5].src)}" alt="${esc(s[5].alt)}" onerror="this.remove()">` : ''}
+        ${s[6] ? `<p>${esc(s[6]).replace(/\n/g, '<br>')}</p>` : ''}
         ${s[2].map(item => `<p>☐ ${esc(item)}</p>`).join('')}
         ${s[3] ? `<p><b>Частая ошибка:</b> ${esc(s[3])}</p>` : ''}`).join('')}
     </div>`;
 }
 
 // переход на шаг и подсчет статистики
+let moved = 0;
+
 function go(id, step) {
   const g = find(id);
   const p = progress(id);
+  const from = p.step;
   const maxSeen = Math.max(-1, ...p.seen);
   if (step > maxSeen + 1) return toast('Сначала пройдите предыдущие шаги');
   if (step > p.step && p.seen.length) {
@@ -394,7 +447,8 @@ function go(id, step) {
     s.time[p.step] += sent.ms;
     s.count[p.step] += 1;
   }
-  if (step >= g.steps.length) {
+  const finish = step >= g.steps.length;
+  if (finish) {
     p.finished = true;
   } else {
     p.step = step;
@@ -408,8 +462,24 @@ function go(id, step) {
   save('p' + id, p);
   save('last', id);
   api('POST', `/tasks/${id}/progress`, sent, true);
+  moved = finish ? 0 : Math.sign(step - from);
   render();
   scrollTo(0, 0);
+  if (finish) celebrate();
+}
+
+/* Салют после прохождения */
+
+function celebrate() {
+  if (!window.confetti || calm()) return;
+  const colors = ['#1e7f55', '#6fd39e', '#f2c94c', '#5b3f99', '#d9772f', '#4a90e2'];
+  const burst = (x, angle, count) => confetti({
+    particleCount: count, angle, spread: 65, startVelocity: 60, gravity: 1.1,
+    ticks: 220, origin: { x, y: 1 }, colors, zIndex: 30
+  });
+  burst(0, 60, 90);
+  burst(1, 120, 90);
+  setTimeout(() => { burst(0.15, 75, 60); burst(0.85, 105, 60); }, 300);
 }
 
 function restart(id) {
@@ -431,7 +501,8 @@ function check(id, key) {
   const p = progress(id);
   p.checks[key] = !p.checks[key];
   save('p' + id, p);
-  rerender();
+  const boxes = document.querySelectorAll('.check input');
+  $('checked-count').textContent = `Отмечено ${[...boxes].filter(b => b.checked).length} из ${boxes.length}`;
 }
 
 async function vote(id, step, value) {
@@ -441,6 +512,54 @@ async function vote(id, step, value) {
   await loadGuides();
   if (value) toast('Спасибо! Автор увидит вашу оценку');
   rerender();
+  if (value > 0) burst(document.querySelector('[data-vote="1"]'));
+}
+
+/* Анимации */
+
+function burst(button) {
+  if (!button || calm()) return;
+  button.classList.add('pop');
+  const box = document.createElement('span');
+  box.className = 'burst';
+  box.innerHTML = Array.from({ length: 8 }, (_, i) => `<i style="--a: ${i * 45}deg"></i>`).join('');
+  button.append(box);
+  setTimeout(() => box.remove(), 700);
+}
+
+let pillAt = null;
+
+function placePill() {
+  const seg = $('sortSeg');
+  if (!seg) return;
+  const pill = seg.querySelector('.pill');
+  const on = seg.querySelector('.chip.on');
+  const to = { x: on.offsetLeft, w: on.offsetWidth };
+  const move = at => {
+    pill.style.transform = `translateX(${at.x}px)`;
+    pill.style.width = at.w + 'px';
+  };
+  pill.style.transition = 'none';
+  move(pillAt && !calm() ? pillAt : to);
+  pill.offsetWidth;
+  pill.style.transition = '';
+  move(to);
+  pillAt = to;
+}
+
+function countUp() {
+  if (calm()) return;
+  document.querySelectorAll('[data-count]').forEach(el => {
+    const end = +el.dataset.count;
+    const suffix = el.dataset.suffix || '';
+    const start = performance.now();
+    const tick = now => {
+      const k = Math.min(1, (now - start) / 800);
+      el.textContent = Math.round(end * (1 - Math.pow(1 - k, 3))) + suffix;
+      if (k < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
 }
 
 async function addComment(id, step) {
@@ -461,7 +580,7 @@ function embed(id) {
     <textarea id="code" rows="4" readonly>${esc(code)}</textarea>
     <div class="row" style="justify-content: flex-end; margin-top: 12px">
       <button class="btn light" onclick="closeModal()">Закрыть</button>
-      <button class="btn" onclick="copy($('code').value)">Скопировать код</button>
+      <button class="btn" onclick="copy($('code').value, this)">Скопировать код</button>
     </div>`);
 }
 
@@ -515,7 +634,7 @@ function authorPage() {
           const s = stats(g);
           return `
             <tr>
-              <td><a href="#/guide/${g.id}"><b>${esc(g.title)}</b></a><div class="muted">${plural(g.steps.length, 'шаг', 'шага', 'шагов')} · ${CATS[g.cat]}</div></td>
+              <td><a href="#/guide/${g.id}"><b>${esc(g.title)}</b></a><div class="muted">${plural(g.steps.length, 'шаг', 'шага', 'шагов')}, ${CATS[g.cat]}</div></td>
               <td>${g.version}</td>
               <td>${s.started}</td>
               <td>${s.done}%</td>
@@ -533,12 +652,12 @@ function authorPage() {
     </div>
 
     <div class="box">
-      <h2>Предложения читателей · ${ideas.length}</h2>
+      <h2>Предложения читателей (${ideas.length})</h2>
       ${ideas.map(c => `
         <div class="comment">
           <span class="ava">${initials(c.name)}</span>
           <div class="grow">
-            <div class="small"><b>${esc(c.name)}</b> <span class="muted">· «${esc(c.g.title)}», шаг ${c.step + 1}</span></div>
+            <div class="small"><b>${esc(c.name)}</b> <span class="muted">«${esc(c.g.title)}», шаг ${c.step + 1}</span></div>
             <p style="margin-bottom: 10px">${esc(c.text)}</p>
             <div class="row">
               <a class="btn small" href="#/edit/${c.g.id}" onclick="answerIdea(${c.g.id}, ${c.id}, true)">Принять и исправить</a>
@@ -633,15 +752,57 @@ function stepForm(s) {
     <div class="box step-form">
       <div class="row" style="flex-wrap: nowrap">
         <span class="num cur"></span>
-        <input class="grow" placeholder="Заголовок шага" value="${esc(s[0])}">
+        <input class="grow s-title" placeholder="Заголовок шага" value="${esc(s[0])}">
         <button class="btn light" onclick="moveStep(this, -1)" aria-label="Выше">${ic('up')}</button>
         <button class="btn light" onclick="moveStep(this, 1)" aria-label="Ниже">${ic('down')}</button>
         <button class="btn light" onclick="this.closest('.step-form').remove()" aria-label="Удалить шаг">${ic('trash')}</button>
       </div>
-      <textarea rows="2" placeholder="Что сделать и зачем">${esc(s[1])}</textarea>
-      <textarea rows="3" placeholder="Пункты чек-листа — по одному в строке">${esc(s[2].join('\n'))}</textarea>
-      <input placeholder="Частая ошибка (необязательно)" value="${esc(s[3])}">
+      <textarea class="s-text" rows="2" placeholder="Что сделать и зачем">${esc(s[1])}</textarea>
+      <textarea class="s-items" rows="3" placeholder="Пункты чек-листа — по одному в строке">${esc(s[2].join('\n'))}</textarea>
+      <input class="s-warn" placeholder="Частая ошибка (необязательно)" value="${esc(s[3])}">
+      <details class="extra" ${s[5] || s[6] ? 'open' : ''}>
+        <summary>Картинка и подробности</summary>
+        <div class="row" style="flex-wrap: nowrap">
+          <input class="grow s-src" placeholder="Ссылка на картинку: https://…" value="${esc(s[5] ? s[5].src : '')}" oninput="previewImage(this)">
+          <label class="btn light upload">Загрузить<input type="file" accept="image/*" hidden onchange="uploadImage(this)"></label>
+        </div>
+        <img class="s-preview" src="${esc(s[5] ? s[5].src : '')}" alt="" ${s[5] ? '' : 'hidden'}>
+        <input class="s-alt" placeholder="Что на картинке (обязательно, если есть картинка)" value="${esc(s[5] ? s[5].alt : '')}">
+        <textarea class="s-more" rows="3" placeholder="Подробнее: советы и детали для новичка (необязательно)">${esc(s[6] || '')}</textarea>
+      </details>
     </div>`;
+}
+
+function previewImage(input) {
+  const img = input.closest('.step-form').querySelector('.s-preview');
+  img.src = input.value.trim();
+  img.hidden = !input.value.trim();
+}
+
+function uploadImage(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const pic = new Image();
+    pic.onload = () => {
+      const scale = Math.min(1, 1000 / Math.max(pic.width, pic.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(pic.width * scale);
+      canvas.height = Math.round(pic.height * scale);
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(pic, 0, 0, canvas.width, canvas.height);
+      const src = input.closest('.step-form').querySelector('.s-src');
+      src.value = canvas.toDataURL('image/jpeg', 0.8);
+      previewImage(src);
+      toast('Картинка добавлена');
+    };
+    pic.onerror = () => toast('Это не картинка — выберите JPG, PNG или WebP');
+    pic.src = reader.result;
+  };
+  reader.readAsDataURL(file);
 }
 
 function addStep() {
@@ -659,8 +820,15 @@ function moveStep(button, dir) {
 function readSteps() {
   return [...document.querySelectorAll('.step-form')]
     .map(el => {
-      const [title, text, items, warn] = el.querySelectorAll('input, textarea');
-      return [title.value.trim(), text.value.trim(), items.value.split('\n').map(x => x.trim()).filter(x => x), warn.value.trim()];
+      const val = cls => el.querySelector(cls).value.trim();
+      const src = val('.s-src');
+      return [
+        val('.s-title'), val('.s-text'),
+        val('.s-items').split('\n').map(x => x.trim()).filter(x => x),
+        val('.s-warn'), 0,
+        src ? { src, alt: val('.s-alt') } : null,
+        val('.s-more')
+      ];
     })
     .filter(s => s[0]);
 }
@@ -692,6 +860,8 @@ async function publish(id, mode) {
   const steps = readSteps();
   const title = $('title').value.trim();
   if (!title || !steps.length) return toast('Нужно название и хотя бы один шаг');
+  const noAlt = steps.findIndex(s => s[5] && !s[5].alt);
+  if (noAlt >= 0) return toast(`Шаг ${noAlt + 1}: опишите, что на картинке`);
 
   const body = {
     title, steps,
@@ -722,22 +892,22 @@ function statsPage(id) {
 
   return `
     <div class="row" style="margin-bottom: 20px">
-      <div class="grow"><p class="muted small" style="margin: 0">Аналитика · версия ${g.version}</p><h1 style="margin: 0">${esc(g.title)}</h1></div>
+      <div class="grow"><p class="muted small" style="margin: 0">Аналитика, версия ${g.version}</p><h1 style="margin: 0">${esc(g.title)}</h1></div>
       <a class="btn light" href="#/guide/${id}">${ic('open')} Открыть инструкцию</a>
     </div>
 
     <div class="tiles">
-      <div class="box">Начали<b class="big">${st.started}</b></div>
-      <div class="box">Дошли до конца<b class="big">${st.done}%</b></div>
-      <div class="box">Оценили «полезно»<b class="big">${st.useful ? st.useful + '%' : '—'}</b></div>
-      <div class="box">Комментариев<b class="big">${comments.length}</b></div>
+      <div class="box">Начали<b class="big" data-count="${st.started}">${st.started}</b></div>
+      <div class="box">Дошли до конца<b class="big" data-count="${st.done}" data-suffix="%">${st.done}%</b></div>
+      <div class="box">Оценили «полезно»${st.useful ? `<b class="big" data-count="${st.useful}" data-suffix="%">${st.useful}%</b>` : '<b class="big">—</b>'}</div>
+      <div class="box">Комментариев<b class="big" data-count="${comments.length}">${comments.length}</b></div>
     </div>
 
     <div class="box">
       <h2>Сколько людей дошло до каждого шага</h2>
       <p class="muted small">Оранжевым — шаги, после которых бросают больше 10% читателей</p>
       <div class="chart">
-        ${g.steps.map((s, i) => `<div class="${st.lost(i) > 10 ? 'bad' : ''}">${pct(i)}%<i style="height: ${pct(i) * 2}px"></i></div>`).join('')}
+        ${g.steps.map((s, i) => `<div class="${st.lost(i) > 10 ? 'bad' : ''}">${pct(i)}%<i style="height: ${pct(i) * 2}px; --i: ${i}"></i></div>`).join('')}
       </div>
       <div class="axis">${g.steps.map((s, i) => `<span>${i + 1}</span>`).join('')}</div>
     </div>
@@ -815,6 +985,60 @@ function logout() {
   render();
 }
 
+/* Версия для слабовидящих */
+
+function a11yPanel() {
+  const a = a11y();
+  const opt = (key, value, text, cls = '') => `
+    <button class="chip ${cls} ${a[key] === value ? 'on' : ''}" aria-pressed="${a[key] === value}"
+      onclick="setA11y('${key}', ${typeof value == 'string' ? `'${value}'` : value})">${text}</button>`;
+  openModal(`
+    <h2>Версия для слабовидящих</h2>
+    <label class="switch">
+      <input type="checkbox" role="switch" ${a.on ? 'checked' : ''} onchange="setA11y('on', this.checked)">
+      <span>${a.on ? 'Включена' : 'Выключена'}</span>
+    </label>
+    ${a.on ? `
+      <div class="a11y-group"><b>Размер текста</b><div class="row">
+        ${opt('size', 1, 'А', 'fs1')}${opt('size', 2, 'А', 'fs2')}${opt('size', 3, 'А', 'fs3')}
+      </div></div>
+      <div class="a11y-group"><b>Цвета</b><div class="row">
+        ${opt('scheme', 'base', 'Обычные')}
+        ${opt('scheme', 'bw', 'Чёрный на белом', 'sw-bw')}
+        ${opt('scheme', 'wb', 'Белый на чёрном', 'sw-wb')}
+        ${opt('scheme', 'blue', 'Синий на голубом', 'sw-blue')}
+      </div></div>
+      <div class="a11y-group"><b>Картинки</b><div class="row">
+        ${opt('images', true, 'Показывать')}${opt('images', false, 'Скрыть')}
+      </div></div>
+      <div class="a11y-group"><b>Расстояние между буквами</b><div class="row">
+        ${opt('spacing', false, 'Обычное')}${opt('spacing', true, 'Увеличенное')}
+      </div></div>
+      <p class="muted small">Анимация и салют в этом режиме отключены.</p>` : ''}
+    <div class="row" style="justify-content: flex-end; margin-top: 16px">
+      <button class="btn" onclick="closeModal()">Готово</button>
+    </div>`);
+}
+
+function setA11y(key, value) {
+  save('a11y', { ...a11y(), [key]: value });
+  applyA11y();
+  a11yPanel();
+  document.querySelectorAll('.spot img').forEach((img, i) => { img.src = emoji(i); });
+}
+
+function applyA11y() {
+  const a = a11y();
+  const cls = !a.on ? [] : [
+    'a11y', 'size-' + a.size,
+    a.scheme != 'base' && 'contrast scheme-' + a.scheme,
+    !a.images && 'no-img',
+    a.spacing && 'spaced'
+  ].filter(Boolean);
+  document.documentElement.className = cls.join(' ');
+  $('eye').classList.toggle('on', a.on);
+}
+
 /*Запуск*/
 
 const ROUTES = {
@@ -829,9 +1053,14 @@ function render() {
   $('app').innerHTML = (ROUTES[page] || catalogPage)(id, page);
   document.querySelectorAll('.menu a').forEach(a => a.classList.toggle('active', a.hash == '#/' + page));
   $('me').textContent = logged() ? user().name : 'Войти';
+  moved = 0;
+  placePill();
+  countUp();
 }
 
 if (location.search.includes('embed')) document.body.classList.add('embed');
+applyA11y();
+document.addEventListener('keydown', e => { if (e.key == 'Escape') closeModal(); });
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js');
 window.addEventListener('offline', () => toast('Нет интернета — всё продолжит работать'));
 window.onhashchange = () => { render(); scrollTo(0, 0); };

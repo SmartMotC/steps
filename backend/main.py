@@ -22,6 +22,14 @@ SITE_FILES = {
     "data.js": "text/javascript",
     "sw.js": "text/javascript",
 }
+IMAGE_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".svg": "image/svg+xml",
+}
 
 app = FastAPI(title="Пошагово")
 
@@ -43,7 +51,7 @@ class AddTasks(BaseModel):
     title: str
     cat: int
     time: str
-    steps: list[tuple[str, str, list[str], str]]
+    steps: list[list]
     forkOf: str = ""
 
 
@@ -253,11 +261,37 @@ def check_author(task, user):
         raise HTTPException(status_code=403, detail="Это не ваша инструкция")
 
 
+def is_text(value):
+    return isinstance(value, str)
+
+
+def clean_step(number, step):
+    error = HTTPException(status_code=400, detail=f"Шаг {number}: неверный формат")
+    if len(step) < 4 or len(step) > 7:
+        raise error
+    step = step + [0, None, ""][len(step) - 4:]
+    title, text, items, warn, _, image, more = step
+    if not (is_text(title) and is_text(text) and is_text(warn) and is_text(more)):
+        raise error
+    if not isinstance(items, list) or not all(is_text(item) for item in items):
+        raise error
+    if image is not None:
+        if not isinstance(image, dict) or not is_text(image.get("src")) or not is_text(image.get("alt")):
+            raise error
+        if not image["alt"].strip():
+            raise HTTPException(status_code=400, detail=f"Шаг {number}: опишите, что на картинке")
+        if len(image["src"]) > 2_000_000:
+            raise HTTPException(status_code=400, detail=f"Шаг {number}: картинка слишком большая")
+        image = {"src": image["src"], "alt": image["alt"]}
+    return [title, text, items, warn, 0, image, more]
+
+
 def check_task(data):
     if not data.title.strip() or not data.steps:
         raise HTTPException(status_code=400, detail="Нужно название и хотя бы один шаг")
     if data.cat < 0 or data.cat > 4:
         raise HTTPException(status_code=400, detail="Такого раздела нет")
+    return [clean_step(i + 1, step) for i, step in enumerate(data.steps)]
 
 
 def check_step(task, step):
@@ -323,10 +357,10 @@ def get_task(task_id: int):
 
 @app.post("/add_tasks")
 def add_tasks(data: AddTasks, user: dict = Depends(current_user)):
-    check_task(data)
+    steps = check_task(data)
     task_id = insert_task(
         data.title, data.cat, data.time, user["username"], user["role"] == "expert",
-        1, data.forkOf, now_ms(), 0, 0, data.steps,
+        1, data.forkOf, now_ms(), 0, 0, steps,
     )
     return full_task(find_task(task_id))
 
@@ -335,10 +369,10 @@ def add_tasks(data: AddTasks, user: dict = Depends(current_user)):
 def edit_task(task_id: int, data: AddTasks, user: dict = Depends(current_user)):
     task = find_task(task_id)
     check_author(task, user)
-    check_task(data)
+    steps = check_task(data)
     execute(
         "UPDATE tasks SET title = ?, cat = ?, time = ?, steps = ?, version = version + 1, created = ? WHERE id = ?",
-        (data.title, data.cat, data.time, json.dumps(data.steps, ensure_ascii=False), now_ms(), task_id),
+        (data.title, data.cat, data.time, json.dumps(steps, ensure_ascii=False), now_ms(), task_id),
     )
     return full_task(find_task(task_id))
 
@@ -414,6 +448,14 @@ def add_progress(task_id: int, data: AddProgress):
 @app.get("/")
 def site():
     return site_file("index.html")
+
+
+@app.get("/img/{name}")
+def image_file(name: str):
+    path = SITE / "img" / name
+    if Path(name).name != name or path.suffix.lower() not in IMAGE_TYPES or not path.is_file():
+        raise HTTPException(status_code=404, detail="Картинка не найдена")
+    return FileResponse(path, media_type=IMAGE_TYPES[path.suffix.lower()])
 
 
 @app.get("/{name}")
